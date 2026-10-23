@@ -4,23 +4,44 @@
 
 ## 准备账号
 
-先在微信提供的 iLink 入口完成本人登录，确认账号有权限使用该入口。腾讯的 [openclaw-weixin 插件](https://github.com/Tencent/openclaw-weixin)提供微信扫码登录流程；已有可用登录结果时，可以由您手动取出并交接给本桥。DotBridge 不会搜索其他应用的凭据目录，也不会自动登录、新建账号或复制密钥。
+先停止同一微信账号的旧桥接服务，再以最终运行用户打开交互终端。准备一个归此用户所有的私有目录（Linux 为 `0700`，Windows 为仅当前用户可用的私有 ACL），目标凭据文件必须尚不存在。
 
-当前仓库没有扫码登录向导，需要提供已有的 `botToken` 和对应的 `botId`。如果只持有普通微信登录信息、企业微信应用凭据或网页 cookie，不能直接用于本渠道。不要把凭据发到聊天或提交到 Git。
+从总仓库的安装目录执行：
 
-将以下字段写入受保护的 JSON 文件，例如 `/etc/dot-bridge/private/weixin.credentials.json`：
+```sh
+node node_modules/dot-weixin-bridge/scripts/login.js \
+  --credentials-file /etc/dot-bridge/private/weixin.credentials.json \
+  --confirm-private-storage --confirm-stopped
+```
+
+单独克隆本仓库时，把脚本路径改成 `scripts/login.js`。Windows PowerShell 请将命令写成一行，并换成 Windows 的私有文件绝对路径。两个确认参数分别表示允许保存本次官方登录凭据，以及已经停止旧消费者；不确定旧服务是否停止时，先确认再运行。
+
+用本人微信扫描终端中的二维码，并在手机上确认连接。微信若显示一串数字，在同一终端输入；输入不会回显。整个流程最长五分钟，二维码只显示在终端临时屏幕里，结束后清除，不写图片文件，也不打印登录链接。不要录屏、截图外传、把输出重定向到日志，或把 token 发到聊天。
+
+登录成功后，程序根据官方返回的**扫码本人**身份生成私聊绑定，并将凭据写入指定私有文件。它不会通过第一条消息认领 owner，也不会读取其他插件的登录目录。文件已存在时会保留原文件并停止；已有绑定继续使用，不需要为了升级重复扫码。
+
+新文件包含以下字段。您无需手抄这些值；若要迁移已有凭据，请按既定私有交接方案核对它们：
 
 | 字段 | 填什么 |
 | --- | --- |
 | `ownerId` | 您本人的 iLink 用户 ID |
 | `conversationId` | 与 `ownerId` 相同，限定本人私聊 |
 | `botId` | 登录结果中的 `ilink_bot_id` |
-| `botToken` | 该登录会话的现有 Bearer token |
+| `botToken` | 本次官方登录会话签发的 Bearer token |
 | `routeTag` | 可选；只有登录服务明确提供时才填写 |
 
 本版本固定使用腾讯的 `https://ilinkai.weixin.qq.com`，附件使用腾讯 `novac2c.cdn.weixin.qq.com` 的 `/c2c/download` 与 `/c2c/upload`。不接受自定义 API 地址或消息中任意网址，下载不会携带 bot token。其他网关签发的 token 不能默认兼容。群聊不在本版本范围内。
 
-本人绑定要以官方登录和本人私聊的真实账号信息为准。不要把第一个给机器人发消息的人自动设成 owner；也不要复制其他应用目录里的凭据来猜测绑定。
+如果登录要求切换到其他地区的服务器，命令会报告 `unsupported_login_region` 并停止。当前版本不能通过手改地址继续；需要先确认对应官方地址的支持方案。只有普通微信登录信息、企业微信应用凭据或网页 cookie 时，也不能代替 iLink 登录。
+
+| 扫码提示 | 处理方式 |
+| --- | --- |
+| `login_expired` | 二维码或本次会话已过期；重新运行生成新码 |
+| `verification_invalid` / `verification_blocked` | 核对手机显示的数字；被限制时先等待，最多尝试三次 |
+| `already_bound` | 官方表示已有绑定，但没有发回新凭据；保留原文件，先确认原服务位置 |
+| `private_destination_unavailable` | 检查目标是否已存在、目录权限及运行用户；不要放宽权限绕过 |
+| `owner_evidence_missing` | 官方没有返回可确认的扫码本人身份，本次不保存凭据 |
+| `login_request_failed` | 检查服务器到固定官方地址的 HTTPS 出网，再重新运行；程序不输出原始网络错误 |
 
 ## 配置服务
 
@@ -68,7 +89,7 @@ dot 可以回复文字，也可以单独回复一张图片或一个文件。为�
 
 | 现象 | 处理方式 |
 | --- | --- |
-| 状态提示需要重新登录 | iLink 登录已失效或 token 被拒绝；先恢复官方登录，再手动更新私有凭据文件并重启 |
+| 状态提示需要重新登录 | 先停旧服务，使用扫码命令写入新的私有文件；核对仍是同一本人绑定后，再按迁移安排切换凭据路径并重启，保留数据库和原存储 key |
 | 私聊无消息 | 核对本人绑定、bot 账号和 iLink 登录是否一致；再查原 dot 的事件订阅是否仍有效 |
 | 桥已收到消息但 dot 不答 | 核对原 dot 的订阅是否启用；工具能调用、网关在线都不能代替事件订阅 |
 | 订阅只报通用错误 | 保留一次尝试的时间和脱敏错误；查询 `events/subscribe` 是否到达以及失败阶段，先不要反复创建 |
