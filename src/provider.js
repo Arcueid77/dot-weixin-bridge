@@ -1,10 +1,11 @@
 import {createHash, createCipheriv, randomBytes} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import {MAX_MEDIA_BYTES, cdnUrl, mediaReference, decryptMedia, attachmentMime, validateMediaReply, safeMediaName} from './media.js';
+import {channel} from './channel.js';
 
 const ORIGIN = 'https://ilinkai.weixin.qq.com';
 const MAX_RESPONSE = 2 * 1024 * 1024;
-const BASE_INFO = Object.freeze({channel_version: 'dot-weixin-bridge/0.1.0', bot_agent: 'DotBridge/0.1.0'});
+const BASE_INFO = Object.freeze({channel_version: 'dot-weixin-bridge/0.3.0', bot_agent: 'DotBridge/0.3.0'});
 const bounded = (value, max = 512) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/u.test(value);
 const failure = () => new Error('Weixin provider request failed.');
 
@@ -64,7 +65,7 @@ function normalize(raw, credentials) {
   return message;
 }
 
-export function createProvider({credentials, state, onMessage, signal, fetch = globalThis.fetch, decodeSilk}) {
+export function createProvider({credentials, state, onMessage, signal, fetch = globalThis.fetch, decodeSilk, encodeSilk}) {
   if (!credentials || !bounded(credentials.ownerId) || credentials.ownerId !== credentials.conversationId ||
       credentials.ownerId.endsWith('@chatroom') || !bounded(credentials.botId) ||
       !bounded(credentials.botToken, 8192) ||
@@ -80,12 +81,34 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
   let connected = false;
   let needsLogin = false;
   let silkDecoder;
+  let silkEncoder;
 
   async function decodeVoice(data) {
     // The pinned codec is resolved by trusted code, never by message/config values.
     silkDecoder ??= decodeSilk ? Promise.resolve(decodeSilk) : import('@dot-bridge/core/audio/silk.js')
       .then(({createSilkDecoder}) => createSilkDecoder(import.meta.resolve('silk-wasm')));
     return (await silkDecoder)(data, {signal: lifetime});
+  }
+
+  async function voicePayload(media) {
+    let encoded;
+    let wav;
+    try {
+      if (media.mimeType === 'audio/wav') {
+        silkEncoder ??= encodeSilk ? Promise.resolve(encodeSilk) : import('@dot-bridge/core/audio/silk.js')
+          .then(({createSilkEncoder}) => createSilkEncoder(import.meta.resolve('silk-wasm')));
+        encoded = await (await silkEncoder)(media.data, {signal: lifetime});
+      } else encoded = Buffer.from(media.data.subarray(media.data.toString('ascii', 0, 6) === '#!AMR\n' ? 6 : 0));
+      if (!Buffer.isBuffer(encoded) || !encoded.length || encoded.length > MAX_MEDIA_BYTES) throw failure();
+      // Validate an entire encoded stream inside the bounded codec worker. The
+      // decoder's PCM length supplies a duration rather than trusting a caller.
+      wav = await decodeVoice(encoded);
+      const {validatePcmWav} = await import('@dot-bridge/core/audio/silk.js');
+      const info = validatePcmWav(wav);
+      if (info.sampleRate !== 24000) throw failure();
+      return {data: encoded, playtime: Math.ceil(info.length / (info.sampleRate * 2) * 1000)};
+    } catch { encoded?.fill(0); throw new Error('Weixin native voice is unavailable or exceeds two minutes.'); }
+    finally { wav?.fill(0); }
   }
 
   async function request(endpoint, payload, timeoutMs) {
@@ -193,13 +216,16 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
     const key = randomBytes(16);
     const fileKey = randomBytes(16).toString('hex');
     let ciphertext;
+    let voice;
     try {
+      if (media.type === 'audio') voice = await voicePayload(media);
+      const data = voice?.data ?? media.data;
       const cipher = createCipheriv('aes-128-ecb', key, null);
-      ciphertext = Buffer.concat([cipher.update(media.data), cipher.final()]);
+      ciphertext = Buffer.concat([cipher.update(data), cipher.final()]);
       authorizeSend(authorize);
-      const upload = await request('getuploadurl', {filekey: fileKey, media_type: media.type === 'image' ? 1 : 3,
-        to_user_id: message.senderId, rawsize: media.data.length,
-        rawfilemd5: createHash('md5').update(media.data).digest('hex'), filesize: ciphertext.length,
+      const upload = await request('getuploadurl', {filekey: fileKey, media_type: {image: 1, file: 3, audio: 4}[media.type],
+        to_user_id: message.senderId, rawsize: data.length,
+        rawfilemd5: createHash('md5').update(data).digest('hex'), filesize: ciphertext.length,
         no_need_thumb: true, aeskey: key.toString('hex')}, 15000);
       const url = cdnUrl({fullUrl: upload.upload_full_url, query: upload.upload_param, fileKey}, 'upload');
       authorizeSend(authorize);
@@ -210,6 +236,8 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
         aes_key: Buffer.from(key.toString('hex'), 'ascii').toString('base64'), encrypt_type: 1};
       const item = media.type === 'image'
         ? {type: 2, image_item: {media: reference, mid_size: ciphertext.length}}
+        : media.type === 'audio'
+        ? {type: 3, voice_item: {media: reference, encode_type: 6, bits_per_sample: 16, sample_rate: 24000, playtime: voice.playtime}}
         : {type: 4, file_item: {media: reference, file_name: media.name, len: String(media.data.length)}};
       const clientId = `dot-${createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 32)}`;
       authorizeSend(authorize);
@@ -219,10 +247,10 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       }}, 15000);
       return {providerMessageId: bounded(response.message_id) ? response.message_id : clientId};
     } catch { throw failure(); }
-    finally { key.fill(0); ciphertext?.fill(0); }
+    finally { key.fill(0); ciphertext?.fill(0); voice?.data.fill(0); }
   }
 
-  return {
+  const provider = {
     async start() {
       if (lifetime.aborted) throw new Error('Weixin provider is stopped.');
       if (started) return;
@@ -255,6 +283,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
           if (mimeType === 'audio/silk') {
             const wav = await decodeVoice(data);
             data.fill(0); data = wav; mimeType = 'audio/wav';
+            if (data.length > MAX_MEDIA_BYTES) throw failure();
           }
           return {data, mimeType, ...(attachment.name ? {name: safeMediaName(attachment.name)} : {})};
         } catch { data?.fill(0); throw new Error('Weixin attachment is unavailable.'); }
@@ -274,8 +303,14 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
     async sendReply({message, text, idempotencyKey, authorize}) {
       if (!started || lifetime.aborted || needsLogin || !message || message.senderId !== credentials.ownerId ||
           message.conversationId !== credentials.conversationId || !bounded(message.replyContext?.contextToken, 16384) ||
-          typeof text !== 'string' || !text.trim() || Array.from(text).length > 3800 || !bounded(idempotencyKey, 512)) {
-        throw new Error('Weixin reply is unavailable or exceeds 3800 characters.');
+          typeof text !== 'string' || !text.trim() || !text.isWellFormed() || text.length > channel.maxReplyText ||
+          Buffer.byteLength(text) > 60000 || !bounded(idempotencyKey, 512)) {
+        throw new Error('Weixin reply is unavailable or exceeds 20,000 characters.');
+      }
+      if (text.length > channel.nativeMaxReplyText) {
+        const data = Buffer.from(text, 'utf8');
+        try { return await provider.sendMediaReply({message, media: {type: 'file', data, mimeType: 'text/plain', name: 'answer.txt'}, idempotencyKey, authorize}); }
+        finally { data.fill(0); }
       }
       const clientId = `dot-${createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 32)}`;
       authorizeSend(authorize);
@@ -291,4 +326,5 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       } finally { currentSends.delete(work); }
     },
   };
+  return provider;
 }

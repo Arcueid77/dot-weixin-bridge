@@ -1,6 +1,8 @@
 import {createDecipheriv} from 'node:crypto';
+import {MAX_MEDIA_BYTES} from '@dot-bridge/core/channels/media.js';
+import {validatePcmWav} from '@dot-bridge/core/audio/silk.js';
 
-export const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+export {MAX_MEDIA_BYTES};
 export const CDN_ORIGIN = 'https://novac2c.cdn.weixin.qq.com';
 const bounded = (value, max = 8192) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/u.test(value);
 const unavailable = () => new Error('Weixin attachment is unavailable.');
@@ -112,11 +114,18 @@ export function validateMediaReply({media, text}) {
   if (text !== undefined && (typeof text !== 'string' || text.length > 0)) {
     throw new Error('Weixin media replies support one attachment without a text caption.');
   }
-  if (!media || !['image', 'file'].includes(media.type) || !Buffer.isBuffer(media.data) ||
+  if (!media || !['image', 'audio', 'file'].includes(media.type) || !Buffer.isBuffer(media.data) ||
       media.data.length < 1 || media.data.length > MAX_MEDIA_BYTES || !bounded(media.name, 255) || /\p{Surrogate}/u.test(media.name) ||
       /[\\/]/u.test(media.name) || ['.', '..'].includes(media.name) ||
       typeof media.mimeType !== 'string' || !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/iu.test(media.mimeType) ||
       (media.type === 'image' && imageMime(media.data) !== media.mimeType)) {
-    throw new Error('Weixin media reply requires a supported image or file of at most 8 MiB.');
+    throw new Error('Weixin media reply requires a supported attachment of at most 5 MiB.');
+  }
+  if (media.type === 'audio') {
+    if (media.mimeType === 'audio/wav') {
+      validatePcmWav(media.data);
+    } else if (media.mimeType !== 'audio/silk' || !media.data.subarray(0, 16).includes(Buffer.from('#!SILK_V3'))) {
+      throw new Error('Weixin native voice requires SILK or PCM16 mono WAV, at most two minutes. Send other audio as a file.');
+    }
   }
 }

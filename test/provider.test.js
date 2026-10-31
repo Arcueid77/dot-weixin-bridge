@@ -139,6 +139,6 @@ test('refuses group configuration, wrong recipients and oversized replies withou
   await provider.start();
   await assert.rejects(provider.sendReply({message: {senderId: 'other', conversationId: 'other', replyContext: {contextToken: 'ctx'}}, text: 'test', idempotencyKey: 'key'}));
   await assert.rejects(provider.sendReply({message: {senderId: credentials.ownerId, conversationId: credentials.ownerId,
-    replyContext: {contextToken: 'ctx'}}, text: 'x'.repeat(3801), idempotencyKey: 'key'}));
+    replyContext: {contextToken: 'ctx'}}, text: 'x'.repeat(20001), idempotencyKey: 'key'}));
   assert.equal(sends, 0); await provider.stop();
 });

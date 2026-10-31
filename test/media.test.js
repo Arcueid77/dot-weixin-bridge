@@ -151,6 +151,32 @@ test('download errors are sanitized and stopping aborts in-flight media reads', 
   finally { await failing.provider.stop(); }
 });
 
+test('long answers become one complete encrypted UTF-8 file in the original private context', async () => {
+  let upload, plain, sent;
+  const {provider, message, calls} = await fixture([{type: 1, text_item: {text: 'fixture'}}], async (url, options) => {
+    if (url.endsWith('/getuploadurl')) { upload = JSON.parse(options.body); return response({upload_param: 'fixture-upload'}); }
+    if (url.includes('/c2c/upload')) {
+      const decipher = createDecipheriv('aes-128-ecb', Buffer.from(upload.aeskey, 'hex'), null);
+      plain = Buffer.concat([decipher.update(options.body), decipher.final()]);
+      return new Response('', {headers: {'x-encrypted-param': 'fixture-download'}});
+    }
+    sent = JSON.parse(options.body).msg; return response({ret: 0, message_id: 'fixture-sent'});
+  });
+  try {
+    const text = '汉'.repeat(19998) + '🌏';
+    await provider.sendReply({message, text, idempotencyKey: 'long'});
+    assert.equal(plain.toString('utf8'), text);
+    assert.equal(sent.item_list.length, 1);
+    assert.equal(sent.item_list[0].type, 4);
+    assert.equal(sent.item_list[0].file_item.file_name, 'answer.txt');
+    assert.equal(sent.context_token, message.replyContext.contextToken);
+    assert.equal(calls.length, 3);
+    await assert.rejects(provider.sendReply({message, text: 'x\uD800', idempotencyKey: 'invalid'}));
+    await assert.rejects(provider.sendReply({message, text: 'x'.repeat(20001), idempotencyKey: 'large'}));
+    assert.equal(calls.length, 3);
+  } finally { await provider.stop(); }
+});
+
 test('image and file replies use encrypted official upload then exactly one original-context message', async () => {
   for (const type of ['image', 'file']) {
     let upload; let sent; let plaintext;
@@ -183,8 +209,23 @@ test('image and file replies use encrypted official upload then exactly one orig
   }
 });
 
+test('uncertain long-answer file delivery never retries or sends the answer as another text message', async () => {
+  let sends = 0, uploads = 0;
+  const {provider, message} = await fixture([{type: 1, text_item: {text: 'fixture'}}], async (url, options) => {
+    if (url.endsWith('/getuploadurl')) return response({upload_param: 'fixture-upload'});
+    if (url.includes('/c2c/upload')) { uploads++; return new Response('', {headers: {'x-encrypted-param': 'fixture-download'}}); }
+    sends++;
+    assert.equal(JSON.parse(options.body).msg.item_list[0].type, 4);
+    throw new Error('private uncertain result');
+  });
+  try {
+    await assert.rejects(provider.sendReply({message, text: '汉'.repeat(3801), idempotencyKey: 'long'}));
+    assert.equal(uploads, 1); assert.equal(sends, 1);
+  } finally { await provider.stop(); }
+});
+
 test('unsupported media/captions and wrong peers fail before uploads; no silent voice-as-file substitution', async () => {
-  assert.deepEqual(channel.media, {read: ['image', 'audio', 'file'], reply: ['image', 'file']});
+  assert.deepEqual(channel.media, {read: ['image', 'audio', 'file'], reply: ['image', 'audio', 'file']});
   assert.equal(channel.maxMediaReplyText, 0);
   const {provider, message, calls} = await fixture([{type: 1, text_item: {text: 'fixture'}}]);
   const valid = {message, media: {type: 'image', data: png, mimeType: 'image/png', name: 'fixture.png'}, idempotencyKey: 'key'};
