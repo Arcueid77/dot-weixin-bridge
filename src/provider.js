@@ -264,7 +264,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
     },
     status() { return {connected: connected && !lifetime.aborted, needsLogin}; },
     validateMediaReply,
-    async readAttachment({message, attachmentIndex}) {
+    async readAttachment({message, attachmentIndex, forReply = false}) {
       const ref = message?.replyContext?.mediaRefs?.[attachmentIndex];
       const attachment = message?.attachments?.[attachmentIndex];
       if (!canAccess(message) || !Number.isInteger(attachmentIndex) || attachmentIndex < 0 || attachmentIndex >= 10 ||
@@ -282,8 +282,15 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
           let mimeType = attachmentMime(data, ref, attachment.name);
           if (mimeType === 'audio/silk') {
             const wav = await decodeVoice(data);
-            data.fill(0); data = wav; mimeType = 'audio/wav';
-            if (data.length > MAX_MEDIA_BYTES) throw failure();
+            if(forReply){
+              try{
+                const {validatePcmWav}=await import('@dot-bridge/core/audio/silk.js');
+                if(validatePcmWav(wav).sampleRate!==24000)throw failure();
+              }finally{wav.fill(0);}
+            }else{
+              data.fill(0); data = wav; mimeType = 'audio/wav';
+              if (data.length > MAX_MEDIA_BYTES) throw failure();
+            }
           }
           return {data, mimeType, ...(attachment.name ? {name: safeMediaName(attachment.name)} : {})};
         } catch { data?.fill(0); throw new Error('Weixin attachment is unavailable.'); }

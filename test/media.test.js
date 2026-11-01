@@ -72,7 +72,19 @@ test('corrupt SILK remains unavailable rather than claiming raw SILK is playable
   try {
     assert.equal(message.text, 'reference transcript');
     await assert.rejects(provider.readAttachment({message, attachmentIndex: 0}), {message: 'Weixin attachment is unavailable.'});
+    await assert.rejects(provider.readAttachment({message, attachmentIndex: 0,forReply:true}), {message: 'Weixin attachment is unavailable.'});
   } finally { await provider.stop(); }
+});
+
+test('source voice forwarding validates SILK but retains its encoded bytes without a WAV re-encode',async()=>{
+ const silk=Buffer.from((await encode(Buffer.alloc(4800),24000)).data);
+ const {provider,message}=await fixture([{type:3,voice_item:{media:media(),encode_type:6}}],async()=>new Response(encrypt(silk)));
+ try{
+  const result=await provider.readAttachment({message,attachmentIndex:0,forReply:true});
+  assert.equal(result.mimeType,'audio/silk');assert.deepEqual(result.data,silk);result.data.fill(0);
+  const readable=await provider.readAttachment({message,attachmentIndex:0});
+  assert.equal(readable.mimeType,'audio/wav');assert.equal(readable.data.subarray(0,4).toString(),'RIFF');readable.data.fill(0);
+ }finally{await provider.stop();}
 });
 
 test('file display names match the shared safe basename contract even for legacy stored paths', async () => {
