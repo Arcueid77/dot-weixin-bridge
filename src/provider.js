@@ -2,10 +2,11 @@ import {createHash, createCipheriv, randomBytes} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import {MAX_MEDIA_BYTES, cdnUrl, mediaReference, decryptMedia, attachmentMime, validateMediaReply, safeMediaName} from './media.js';
 import {channel} from './channel.js';
+import {OutboundRejection} from '@dot-bridge/core/channels/outbound.js';
 
 const ORIGIN = 'https://ilinkai.weixin.qq.com';
 const MAX_RESPONSE = 2 * 1024 * 1024;
-const BASE_INFO = Object.freeze({channel_version: 'dot-weixin-bridge/0.3.0', bot_agent: 'DotBridge/0.3.0'});
+const BASE_INFO = Object.freeze({channel_version: 'dot-weixin-bridge/0.6.0', bot_agent: 'DotBridge/0.6.0'});
 const bounded = (value, max = 512) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/u.test(value);
 const failure = () => new Error('Weixin provider request failed.');
 
@@ -111,7 +112,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
     finally { wav?.fill(0); }
   }
 
-  async function request(endpoint, payload, timeoutMs) {
+  async function request(endpoint, payload, timeoutMs, {ownerText = false, authorize} = {}) {
     const timer = new AbortController();
     const timeout = setTimeout(() => timer.abort(), timeoutMs);
     try {
@@ -122,15 +123,21 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
         'iLink-App-Id': 'bot', 'iLink-App-ClientVersion': '256',
       };
       if (credentials.routeTag) headers.SKRouteTag = credentials.routeTag;
+      if (ownerText) authorizeSend(authorize);
       const response = await fetch(`${ORIGIN}/ilink/bot/${endpoint}`, {
         method: 'POST', headers, body: JSON.stringify({...payload, base_info: BASE_INFO}),
         redirect: 'error', signal: AbortSignal.any([lifetime, timer.signal]),
       });
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401 || (!ownerText && response.status === 403)) {
         needsLogin = true;
         connected = false;
       }
-      if (!response.ok) throw failure();
+      if (!response.ok) {
+        if (ownerText && [400, 401, 403, 404, 405, 409, 422, 429].includes(response.status)) {
+          throw new OutboundRejection([401, 403].includes(response.status) ? 'provider_permission_denied' : response.status === 429 ? 'provider_quota_exhausted' : 'provider_rejected');
+        }
+        throw failure();
+      }
       const chunks = [];
       let size = 0;
       for await (const chunk of response.body ?? []) {
@@ -141,10 +148,18 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       const raw = Buffer.concat(chunks).toString('utf8');
       const value = raw.trim() ? parseResponse(raw) : {};
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw failure();
-      if (value.errcode === -14) { needsLogin = true; connected = false; }
-      if ((value.ret !== undefined && value.ret !== 0) || (value.errcode !== undefined && value.errcode !== 0)) throw failure();
+      if (value.errcode === -14 || value.ret === -14) { needsLogin = true; connected = false; }
+      if ((value.ret !== undefined && value.ret !== 0) || (value.errcode !== undefined && value.errcode !== 0)) {
+        if (ownerText && ((Number.isInteger(value.ret) && value.ret !== 0) || (Number.isInteger(value.errcode) && value.errcode !== 0))) {
+          throw new OutboundRejection(value.errcode === -14 || value.ret === -14 ? 'provider_permission_denied' : 'provider_rejected');
+        }
+        throw failure();
+      }
+      // An absent or malformed ACK cannot establish that an independent send succeeded.
+      if (ownerText && value.ret !== 0) throw failure();
       return value;
-    } catch {
+    } catch (error) {
+      if (ownerText && error instanceof OutboundRejection) throw error;
       throw failure();
     } finally {
       clearTimeout(timeout);
@@ -306,6 +321,28 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       const work = sendMedia(input);
       currentSends.add(work);
       try { return await work; } finally { currentSends.delete(work); }
+    },
+    async sendOwnerMessage({text, idempotencyKey, authorize, ...extra}) {
+      if (Object.keys(extra).length || !started || lifetime.aborted || needsLogin || typeof authorize !== 'function' ||
+          typeof text !== 'string' || !text.trim() || !text.isWellFormed() || text.length > 2000 ||
+          /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/u.test(text) || !bounded(idempotencyKey, 512)) {
+        throw new Error('Weixin owner text is unavailable.');
+      }
+      const clientId = `dot-owner-${createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 32)}`;
+      // Independent owner sends never obtain or reuse an incoming context token.
+      const work = request('sendmessage', {msg: {
+        from_user_id: '', to_user_id: credentials.ownerId, client_id: clientId,
+        message_type: 2, message_state: 2,
+        item_list: [{type: 1, text_item: {text}}],
+      }}, 15000, {ownerText: true, authorize: () => {
+        if (!started || lifetime.aborted || needsLogin) throw new Error('Weixin owner text is unavailable.');
+        authorizeSend(authorize);
+      }});
+      currentSends.add(work);
+      try {
+        const response = await work;
+        return {providerMessageId: bounded(response.message_id) ? response.message_id : clientId};
+      } finally { currentSends.delete(work); }
     },
     async sendReply({message, text, idempotencyKey, authorize}) {
       if (!started || lifetime.aborted || needsLogin || !message || message.senderId !== credentials.ownerId ||

@@ -18,6 +18,8 @@ TXT、Markdown、JSON、CSV 等文本附件会提供可读的文字摘录，支�
 
 ## 定时消息
 
-本版本暂不开放本渠道的独立主动推送。仍可从已绑定的本人私聊请求原 dot，安排向其他已启用渠道发送固定提醒；不会复用过期回复窗口或会话令牌来绕过限制。
+支持已绑定本人私聊的主动文字和固定提醒，默认关闭。管理员批准后在私有环境文件中设置 `DOT_BRIDGE_OUTBOUND=owner-text`，重启本渠道与新版聚合器，并刷新原 dot 的工具目录。提醒保存在原加密数据库中，每条最多 2,000 字符，支持一次、每天、每周。
+
+独立发送只用现有微信登录凭据，不读取或复用入站会话令牌。首次启用要用本人账号确认实际接收结果；平台明确拒绝时记录为 `rejected` 并暂停该安排，网络结果不明时记录为 `uncertain`，两者都不自动重发。现有收消息和回复订阅继续沿用。[实现与平台验证说明 / English](docs/outbound.md)。
 
 详见[定时消息使用指南](https://github.com/Arcueid77/dot-bridge/blob/dev/unified-distribution/docs/scheduled-messages.md)。

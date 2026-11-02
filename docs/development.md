@@ -1,5 +1,14 @@
 # Provider implementation
 
+The 0.6.0 owner-text path uses the existing bound account and fixed `sendmessage`
+endpoint without reading inbound state or sending `context_token`. It requires
+the common opt-in and synchronous authorization immediately before HTTP. Only an
+explicit `ret: 0` is an ACK. Known HTTP/business rejections use core's fixed
+`OutboundRejection` categories; malformed/lost ACKs, transport failures, and 5xx
+remain uncertain. Outbound HTTP 403 alone does not invalidate the incoming login.
+Synthetic fixtures cover owner routing, no source-context fallback, auth revocation,
+strict ACKs, rejection classification, cancellation, and no implicit retry.
+
 `src/provider.js` implements the independent provider contract from `dot-bridge-core`. Shared authentication, MCP, callback validation, encrypted state and final-reply lifecycle remain in core.
 
 Protocol sources reviewed on 2026-10-23:
