@@ -1,5 +1,7 @@
 # dot-weixin-bridge
 
+[English](README.en.md)
+
 把本人微信 iLink 私聊接到原来的 ChatGPT dot，并把 dot 的回答发回原私聊。与飞书、QQ 一样，通过官方 Secure MCP Tunnel 连接；共享运行服务由 `dot-bridge-core` 提供，总仓库统一安装和管理。
 
 运行扫码接入命令，用本人微信确认后，程序会保存登录凭据和本人绑定。微信 iLink 与企业微信是两个独立渠道，账号可用性取决于微信当前提供的入口及该账号的登录结果。
@@ -22,4 +24,7 @@ TXT、Markdown、JSON、CSV 等文本附件会提供可读的文字摘录，支�
 
 独立发送只用现有微信登录凭据，不读取或复用入站会话令牌。首次启用要用本人账号确认实际接收结果；平台明确拒绝时记录为 `rejected` 并暂停该安排，网络结果不明时记录为 `uncertain`，两者都不自动重发。现有收消息和回复订阅继续沿用。[实现与平台验证说明 / English](docs/outbound.md)。
 
-详见[定时消息使用指南](https://github.com/Arcueid77/dot-bridge/blob/dev/unified-distribution/docs/scheduled-messages.md)。
+详见[定时消息使用指南](https://github.com/Arcueid77/dot-bridge/blob/main/docs/scheduled-messages.md)。
+
+
+新增统一交互：受保护策略文件控制处理提示、近期上下文及聊天内管理。Telegram／Discord 另有真正增量编辑和按群／话题规则；新群默认关闭。配置见[统一交互说明](https://github.com/Arcueid77/dot-bridge/blob/main/docs/new-channels.md#统一交互与群聊规则)。

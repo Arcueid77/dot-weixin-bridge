@@ -62,6 +62,7 @@ function normalize(raw, credentials) {
     replyContext: {contextToken, mediaRefs},
     attachments,
   };
+  for(const item of raw.item_list){const ref=item?.ref_msg;const value=ref?.message_item?.text_item?.text??ref?.title;if(typeof value==='string'&&value){let text='';for(const char of value.toWellFormed()){if(text.length+char.length>4000)break;text+=char;}message.quote={text,truncated:value.length>4000};break;}}
   if (Number.isSafeInteger(raw.create_time_ms) && raw.create_time_ms > 0) message.timestamp = raw.create_time_ms;
   return message;
 }
@@ -112,7 +113,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
     finally { wav?.fill(0); }
   }
 
-  async function request(endpoint, payload, timeoutMs, {ownerText = false, authorize} = {}) {
+  async function request(endpoint, payload, timeoutMs, {ownerText = false, authorize, ephemeral = false} = {}) {
     const timer = new AbortController();
     const timeout = setTimeout(() => timer.abort(), timeoutMs);
     try {
@@ -128,7 +129,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
         method: 'POST', headers, body: JSON.stringify({...payload, base_info: BASE_INFO}),
         redirect: 'error', signal: AbortSignal.any([lifetime, timer.signal]),
       });
-      if (response.status === 401 || (!ownerText && response.status === 403)) {
+      if (response.status === 401 || (!ownerText && !ephemeral && response.status === 403)) {
         needsLogin = true;
         connected = false;
       }
@@ -278,6 +279,19 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       connected = false;
     },
     status() { return {connected: connected && !lifetime.aborted, needsLogin}; },
+    async setTyping({message,active,authorize}) {
+      if(!canAccess(message))throw new Error('Weixin typing binding is unavailable');
+      authorizeSend(authorize);
+      let ticket=state.get('typingTicket');
+      if(!ticket||ticket.owner!==credentials.ownerId||typeof ticket.value!=='string'||!bounded(ticket.value,8192)||!Number.isSafeInteger(ticket.expires)||ticket.expires<=Date.now()){
+        if(!active)return;
+        const config=await request('getconfig',{ilink_user_id:credentials.ownerId,context_token:message.replyContext.contextToken},5000,{ephemeral:true});
+        if(config.ret!==0||!bounded(config.typing_ticket,8192))throw new Error('Weixin typing ticket unavailable');
+        ticket={owner:credentials.ownerId,value:config.typing_ticket,expires:Date.now()+540000};state.set('typingTicket',ticket);
+      }
+      authorizeSend(authorize);
+      await request('sendtyping',{ilink_user_id:credentials.ownerId,typing_ticket:ticket.value,status:active?1:2},5000,{ephemeral:true});
+    },
     validateMediaReply,
     async readAttachment({message, attachmentIndex, forReply = false}) {
       const ref = message?.replyContext?.mediaRefs?.[attachmentIndex];

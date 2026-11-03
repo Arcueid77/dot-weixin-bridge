@@ -17,7 +17,7 @@
 主动发送的权限拒绝不会使仍有效的普通私聊登录被错误注销。
 
 服务端逻辑清除已结束提醒的正文时保留最小去重记录；SQLite 旧页、WAL、备份和日志
-的保留规则分别管理。状态与工具用法见[统一定时消息指南](https://github.com/Arcueid77/dot-bridge/blob/dev/unified-distribution/docs/scheduled-messages.md)。
+的保留规则分别管理。状态与工具用法见[统一定时消息指南](https://github.com/Arcueid77/dot-bridge/blob/main/docs/scheduled-messages.md)。
 
 ## English
 
