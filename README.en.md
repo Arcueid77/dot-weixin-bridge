@@ -47,3 +47,9 @@ Weixin uses the official typing ticket. `get_weixin_message` or `begin_weixin_re
 ## Owner reminders
 
 Explicit `DOT_BRIDGE_OUTBOUND=owner-text` enables owner notifications and fixed reminders, up to 2,000 characters. Independent iLink requests omit the inbound context token. Verify actual account acceptance before enabling; explicit rejection pauses the intent and unknown outcomes remain uncertain. See [outbound details](docs/outbound.md#english) and the [shared guide](https://github.com/Arcueid77/dot-bridge/blob/main/docs/scheduled-messages.en.md).
+
+## Choices, uploads and reminder management
+
+Numbered text choices let the user answer with a selection. A dot environment with programmatic file access can upload generated media in bounded encrypted chunks, verify its size and SHA-256, then submit the source-bound final reply. Files are limited to 5 MiB and this provider's supported media types and formats.
+
+Literal reminders support weekdays, fixed intervals, pause, resume and delivery history. Check `check_weixin_outbound` before use and supply the saved reminder ID and current revision. Resuming skips old paused occurrences.

@@ -50,3 +50,9 @@ TXT、Markdown、JSON、CSV 等文本附件会提供可读的文字摘录，支�
 `get_weixin_reply_status` 查询最终投递：`none` 表示尚未排队，`pending` 表示已排队，`processing` 表示最终消息正在写出，`sent` 表示平台确认。处理提示有独立的租约；开始处理后仍需提交本次最终回答。`uncertain` 保持人工核对，不自动补发。
 
 微信使用官方 typing ticket。`get_weixin_message` 或 `begin_weixin_reply` 触发真实处理提示，最终以 `reply_to_weixin` 完成；长回答保留完整文件策略。`groups` 保持空数组。
+
+## 选项、文件和提醒管理
+
+支持用编号文字回复一组选项，直接回复编号即可继续对话。生成的图片、音频或文件可由具备程序文件读取能力的原 dot 分块上传，经大小与 SHA-256 校验后作为原消息的最终回复。单文件上限 5 MiB，仍需满足本渠道支持的媒体类型与格式。
+
+固定文字提醒支持工作日、固定间隔、暂停、恢复和发送历史。先核对 `check_weixin_outbound` 的开关，再按提醒编号与当前版本操作。暂停期间的旧时间点在恢复时跳过。
