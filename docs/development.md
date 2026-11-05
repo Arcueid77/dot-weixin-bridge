@@ -1,5 +1,12 @@
 # Provider implementation
 
+## 当前文档基线 / Current documentation baseline
+
+组件 0.7.1 使用固定 core 0.11.1，版本和源 SHA 以 `package.json`、`vendor/core-release.json` 及锁文件为准。Windows／Linux CI 已运行。2026-11-05 记录：本轮新交互待本人消息，原网关和订阅沿用；该维护部署的独立主动开关维持关闭。
+
+Source documentation follows registered capabilities. Preserve reviewed artifacts and package documentation through the next normal release. Actual account acceptance remains separate.
+
+
 The 0.6.0 owner-text path uses the existing bound account and fixed `sendmessage`
 endpoint without reading inbound state or sending `context_token`. It requires
 the common opt-in and synchronous authorization immediately before HTTP. Only an

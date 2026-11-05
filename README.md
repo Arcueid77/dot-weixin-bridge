@@ -16,7 +16,9 @@
 
 可以让 dot 把收到的图片、语音或文件直接发回原私聊，例如“把这张图发回来”。桥会按附件编号读取，不需要来回传递很长的编码文本。仍需符合本渠道的格式和大小限制；无法作为语音发送的已识别音频，可以明确选择作为文件回复。
 
-TXT、Markdown、JSON、CSV 等文本附件会提供可读的文字摘录，支持 UTF-8 和带标记的 UTF-16；过长时明确标记为截断，原文件仍可读取。其他格式继续保留原件。
+TXT、Markdown、JSON、CSV 等文本附件会提供可读的文字摘录，支持 UTF-8 和带标记的 UTF-16；过长时明确标记为截断，原文件仍可读取。PDF／Office 摘录复用受保护的 Linux 处理环境；原文件继续保留。
+
+运行主机可使用持续开机的 Linux 或 Windows 电脑，Linux 支持 systemd。macOS 尚未验证，欢迎试用并反馈。
 
 ## 定时消息
 
@@ -26,5 +28,25 @@ TXT、Markdown、JSON、CSV 等文本附件会提供可读的文字摘录，支�
 
 详见[定时消息使用指南](https://github.com/Arcueid77/dot-bridge/blob/main/docs/scheduled-messages.md)。
 
+## 处理提示、上下文与聊天内管理
 
-新增统一交互：受保护策略文件控制处理提示、近期上下文及聊天内管理。Telegram／Discord 另有真正增量编辑和按群／话题规则；新群默认关闭。配置见[统一交互说明](https://github.com/Arcueid77/dot-bridge/blob/main/docs/new-channels.md#统一交互与群聊规则)。
+在私有环境文件里设置 `DOT_BRIDGE_INTERACTION_POLICY_FILE`，指向运行用户持有的 JSON 文件。Linux 目录 `0700`、文件 `0600`；Windows 使用私有 ACL。先以本人私聊配置开始：
+
+```json
+{
+  "version": 1,
+  "feedback": {"enabled": true, "reaction": false, "typing": true, "streaming": false, "lease_seconds": 60},
+  "context": {"max_messages": 20, "max_chars": 12000},
+  "replies": {"long_text": "file"},
+  "management": {"enabled": true},
+  "groups": []
+}
+```
+
+微信通过官方 typing 显示实际处理；原 dot 读取消息或明确开始后启动有时限的提示。完成、取消、失败或到期后清理提示。`get_weixin_context` 提供同一会话、话题和成员范围内的保留历史及引用。
+
+本人私聊可使用 `/help`、`/status`、`/queue`、`/subscription`、`/cancel [编号]`。取消作用于尚未发送的桥接回复；发送中和结果不明的记录保留核对。订阅由原 dot／平台按真实有效期续订。
+
+`get_weixin_reply_status` 查询最终投递：`none` 表示尚未排队，`pending` 表示已排队，`processing` 表示最终消息正在写出，`sent` 表示平台确认。处理提示有独立的租约；开始处理后仍需提交本次最终回答。`uncertain` 保持人工核对，不自动补发。
+
+微信使用官方 typing ticket。`get_weixin_message` 或 `begin_weixin_reply` 触发真实处理提示，最终以 `reply_to_weixin` 完成；长回答保留完整文件策略。`groups` 保持空数组。

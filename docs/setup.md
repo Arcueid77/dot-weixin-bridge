@@ -1,6 +1,8 @@
 # 连接微信 iLink
 
-桥接运行在持续开机的服务器或电脑上，通过 iLink 长轮询收消息，不需要给微信开放公网入站端口。MCP 服务默认只监听 `127.0.0.1:8792`；通过总仓库的聚合路由器加入已有的单一 Secure MCP Tunnel。
+[English](setup.en.md)
+
+桥接运行在持续开机的服务器或电脑上，通过 iLink 长轮询收消息，不需要给微信开放公网入站端口。MCP 服务只监听 loopback；下文显式使用 `8803`（组件未设置 PORT 时为 `8792`）；通过总仓库的聚合路由器加入已有的单一 Secure MCP Tunnel。
 
 ## 准备账号
 
@@ -55,7 +57,7 @@ BRIDGE_MODE=tunnel
 TUNNEL_SERVICE_OPERATION=live
 TUNNEL_SERVICE_OWNER_ID=tunnel-owner:dot-bridge
 HOST=127.0.0.1
-PORT=8792
+PORT=8803
 WEIXIN_TRANSPORT=long-polling
 WEIXIN_CREDENTIALS_FILE=/etc/dot-bridge/private/weixin.credentials.json
 TUNNEL_SERVICE_KEY_FILE=/etc/dot-bridge/private/weixin.service-key
