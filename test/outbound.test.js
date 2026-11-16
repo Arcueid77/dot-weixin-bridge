@@ -10,8 +10,8 @@ const abortable = signal => new Promise((resolve,reject)=>{
   else signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true});
 });
 async function fixture(t,serve=async()=>Response.json({ret:0})){
-  const calls=[];
-  const provider=createProvider({credentials,state:{get:()=>undefined,set:()=>{},delete:()=>{}},onMessage:async()=>{},fetch:async(url,options)=>{
+  const calls=[],values=new Map();
+  const provider=createProvider({credentials,state:{get:key=>values.get(key),set:(key,value)=>values.set(key,value),delete:key=>values.delete(key)},onMessage:async()=>{},fetch:async(url,options)=>{
     if(url.endsWith('/getupdates'))return abortable(options.signal);
     calls.push({url,options});return serve(url,options);
   }});
@@ -42,6 +42,7 @@ test('platform business refusal is a sanitized terminal rejection, not success o
   const {provider,calls}=await fixture(t,async()=>Response.json({ret:-2,errmsg:'private fixture context refusal'}));
   await assert.rejects(provider.sendOwnerMessage(input),error=>error instanceof OutboundRejection&&error.reason==='provider_rejected'&&!error.message.includes('private fixture'));
   assert.equal(calls.length,1);assert.equal(provider.status().needsLogin,false);
+  assert.deepEqual(provider.outboundDiagnostics(),{login_required:false,inbound_context_observed:false,independent_send:'rejected',provider_code:-2});
 });
 
 test('explicit permission and quota errors are distinguished without invalidating a working login on HTTP 403',async t=>{

@@ -51,8 +51,8 @@ function keyHex(item, kind) {
 
 // The key and CDN locator belong only in encrypted private message context.
 export function mediaReference(item, kind) {
-  if (!['image', 'audio', 'file'].includes(kind)) return null;
-  const source = item[{image: 'image_item', audio: 'voice_item', file: 'file_item'}[kind]];
+  if (!['image', 'audio', 'file', 'video'].includes(kind)) return null;
+  const source = item[{image: 'image_item', audio: 'voice_item', file: 'file_item', video: 'video_item'}[kind]];
   if (!source?.media || typeof source.media !== 'object') return null;
   try {
     const url = cdnUrl({fullUrl: source.media.full_url, query: source.media.encrypt_query_param}, 'download');
@@ -77,6 +77,11 @@ export function imageMime(data) {
 }
 
 export function attachmentMime(data, ref, name = '') {
+  if(ref.kind==='video'){
+    if(data.subarray(4,8).toString('ascii')==='ftyp')return 'video/mp4';
+    if(data.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3])))return 'video/webm';
+    throw unavailable();
+  }
   if (ref.kind === 'image') {
     const type = imageMime(data);
     if (!type) throw unavailable();

@@ -135,7 +135,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       }
       if (!response.ok) {
         if (ownerText && [400, 401, 403, 404, 405, 409, 422, 429].includes(response.status)) {
-          throw new OutboundRejection([401, 403].includes(response.status) ? 'provider_permission_denied' : response.status === 429 ? 'provider_quota_exhausted' : 'provider_rejected');
+          throw new OutboundRejection([401, 403].includes(response.status) ? 'provider_permission_denied' : response.status === 429 ? 'provider_quota_exhausted' : 'provider_rejected', {providerCode: response.status});
         }
         throw failure();
       }
@@ -152,7 +152,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       if (value.errcode === -14 || value.ret === -14) { needsLogin = true; connected = false; }
       if ((value.ret !== undefined && value.ret !== 0) || (value.errcode !== undefined && value.errcode !== 0)) {
         if (ownerText && ((Number.isInteger(value.ret) && value.ret !== 0) || (Number.isInteger(value.errcode) && value.errcode !== 0))) {
-          throw new OutboundRejection(value.errcode === -14 || value.ret === -14 ? 'provider_permission_denied' : 'provider_rejected');
+          throw new OutboundRejection(value.errcode === -14 || value.ret === -14 ? 'provider_permission_denied' : 'provider_rejected', {providerCode: Number.isInteger(value.errcode) && value.errcode !== 0 ? value.errcode : value.ret});
         }
         throw failure();
       }
@@ -182,7 +182,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
         for (const raw of response.msgs ?? []) {
           if (lifetime.aborted) break;
           const message = normalize(raw, credentials);
-          if (message) await onMessage(message);
+          if (message) {await onMessage(message);state.set('ownerContextObserved', true);}
         }
         if (lifetime.aborted) break;
         // All messages must reach durable ingestion before the remote cursor advances.
@@ -279,6 +279,12 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       connected = false;
     },
     status() { return {connected: connected && !lifetime.aborted, needsLogin}; },
+    outboundDiagnostics() {
+      const saved = state.get('independentSendDiagnostic');
+      return {login_required: needsLogin, inbound_context_observed: state.get('ownerContextObserved') === true,
+        independent_send: ['sent','rejected','uncertain'].includes(saved?.outcome) ? saved.outcome : 'unverified',
+        provider_code: Number.isSafeInteger(saved?.code) && Math.abs(saved.code) <= 1000000000 ? saved.code : null};
+    },
     async setTyping({message,active,authorize}) {
       if(!canAccess(message))throw new Error('Weixin typing binding is unavailable');
       authorizeSend(authorize);
@@ -297,7 +303,7 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       const ref = message?.replyContext?.mediaRefs?.[attachmentIndex];
       const attachment = message?.attachments?.[attachmentIndex];
       if (!canAccess(message) || !Number.isInteger(attachmentIndex) || attachmentIndex < 0 || attachmentIndex >= 10 ||
-          !ref || ref.kind !== attachment?.kind || !['image', 'audio', 'file'].includes(ref.kind) ||
+          !ref || ref.kind !== attachment?.kind || !channel.media.read.includes(ref.kind) ||
           (ref.size !== undefined && (!Number.isSafeInteger(ref.size) || ref.size < 1 || ref.size > MAX_MEDIA_BYTES))) {
         throw new Error('Weixin attachment is unavailable.');
       }
@@ -355,7 +361,12 @@ export function createProvider({credentials, state, onMessage, signal, fetch = g
       currentSends.add(work);
       try {
         const response = await work;
+        state.set('independentSendDiagnostic', {outcome: 'sent', code: null});
         return {providerMessageId: bounded(response.message_id) ? response.message_id : clientId};
+      } catch (error) {
+        state.set('independentSendDiagnostic', {outcome: error instanceof OutboundRejection ? 'rejected' : 'uncertain',
+          code: error instanceof OutboundRejection ? error.providerCode : null});
+        throw error;
       } finally { currentSends.delete(work); }
     },
     async sendReply({message, text, idempotencyKey, authorize}) {

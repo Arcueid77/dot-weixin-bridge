@@ -53,3 +53,20 @@ Explicit `DOT_BRIDGE_OUTBOUND=owner-text` enables owner notifications and fixed 
 Numbered text choices let the user answer with a selection. A dot environment with programmatic file access can upload generated media in bounded encrypted chunks, verify its size and SHA-256, then submit the source-bound final reply. Files are limited to 5 MiB and this provider's supported media types and formats.
 
 Literal reminders support weekdays, fixed intervals, pause, resume and delivery history. Check `check_weixin_outbound` before use and supply the saved reminder ID and current revision. Resuming skips old paused occurrences.
+
+
+## Tasks, consecutive messages and speech
+
+Task tools return a source-bound reference, passive deadline and remaining seconds. The original dot can save one complete text result. The paired owner can use `/tasks` and `/result reference` in the original DM. Source retention applies, and ambiguous delivery stays uncertain.
+
+The protected interaction policy accepts `queue`, for example `{"mode":"batch","window_ms":750,"max_messages":5}`. Modes are `independent`, `serial` and `batch`, defaulting to independent. A batch retains every source and replies through the last source as its anchor. Attachments, quotes and work already started are handled separately, with the existing conversation/member isolation.
+
+Linux operators can install eSpeak NG and the protected audio runtime, then set `DOT_BRIDGE_SPEECH_SYNTHESIS=local-espeak` and `DOT_BRIDGE_SPEECH_VOICE=zh`. The original dot uses `check_weixin_speech` and `reply_weixin_speech`, limited to 2000 characters and 120 seconds. The full text is also retained in the task record.
+
+An explicitly rejected one-time proactive send can be retried after owner confirmation using `retry_weixin_outbound`, its original ID and current revision. The per-channel proactive switch still applies. Recurring reminders keep their edit/resume flow. Hosted-dot stop, reset and approvals use the original platform controls.
+
+## Session diagnostics
+
+The `session` field of `check_weixin_outbound` reports login need, observed owner input context, the actual last independent-send outcome and its sanitized numeric code. Missing historical evidence is unverified. Independent sends follow the real account eligibility and configured switch, without borrowing a passive reply context token. Known rejection and uncertain outcomes remain distinct.
+
+MP4/WebM videos can be read from their authenticated source media reference and explicitly returned using file mode. Video MIME is derived from the decoded bytes.

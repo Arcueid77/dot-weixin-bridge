@@ -44,16 +44,16 @@ test('encrypted image, SILK and file are read by the aligned private locator onl
     {type: 3, voice_item: {media: media({aes_key: Buffer.from(key.toString('hex')).toString('base64')}), encode_type: 6}},
     {type: 4, file_item: {media: media(), file_name: 'fixture.pdf', len: String(file.length), md5: createHash('md5').update(file).digest('hex')}},
   ];
-  const buffers = [png, silk, file]; let index = 0;
+  const video=Buffer.from('00000018667479706d703432','hex');
+  const buffers = [video,png, silk, file]; let index = 0;
   const {provider, message, calls} = await fixture(items, async () => new Response(encrypt(buffers[index++])));
   try {
     assert.equal(calls.length, 0);
     assert.equal(JSON.stringify(message.attachments).includes('query'), false);
     assert.equal(JSON.stringify(message.attachments).includes(key.toString('hex')), false);
-    await assert.rejects(provider.readAttachment({message, attachmentIndex: 0}), /unavailable/u);
-    for (const [offset, mimeType] of ['image/png', 'audio/wav', 'application/pdf'].entries()) {
-      const result = await provider.readAttachment({message, attachmentIndex: offset + 1});
-      if (offset === 1) {
+    for (const [offset, mimeType] of ['video/mp4','image/png', 'audio/wav', 'application/pdf'].entries()) {
+      const result = await provider.readAttachment({message, attachmentIndex: offset});
+      if (offset === 2) {
         assert.equal(result.data.toString('ascii', 0, 4), 'RIFF');
         assert.equal(result.data.toString('ascii', 8, 12), 'WAVE');
         assert.equal(result.data.readUInt32LE(24), 24000);
@@ -237,7 +237,7 @@ test('uncertain long-answer file delivery never retries or sends the answer as a
 });
 
 test('unsupported media/captions and wrong peers fail before uploads; no silent voice-as-file substitution', async () => {
-  assert.deepEqual(channel.media, {read: ['image', 'audio', 'file'], reply: ['image', 'audio', 'file']});
+  assert.deepEqual(channel.media, {read: ['image', 'audio', 'file', 'video'], reply: ['image', 'audio', 'file']});
   assert.equal(channel.maxMediaReplyText, 0);
   const {provider, message, calls} = await fixture([{type: 1, text_item: {text: 'fixture'}}]);
   const valid = {message, media: {type: 'image', data: png, mimeType: 'image/png', name: 'fixture.png'}, idempotencyKey: 'key'};
